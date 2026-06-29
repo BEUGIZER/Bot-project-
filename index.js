@@ -70,7 +70,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'customize') {
-        return customize.execute(interaction);
+        await customize.execute(interaction);
+        return;
       }
 
       const def = commands.get(interaction.commandName);
@@ -80,20 +81,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // (guards against stale Discord-side caches right after a /customize change).
       const settings = await getGuildSettings(interaction.guildId);
       if (!settings.active_commands.includes(interaction.commandName)) {
-        return interaction.reply({ content: 'This command is not currently active in this server.', ephemeral: true });
+        await interaction.reply({ content: 'This command is not currently active in this server.', ephemeral: true });
+        return;
       }
-      return def.execute(interaction);
+      await def.execute(interaction);
+      return;
     }
 
     if (interaction.customId?.startsWith('customize:')) {
-      return customize.handleComponent(interaction);
+      await customize.handleComponent(interaction);
+      return;
     }
 
     // Component interactions belonging to a specific command, e.g. "tictactoe:4", "poll:yes"
     if (interaction.customId?.includes(':')) {
       const [cmdName] = interaction.customId.split(':');
       const def = commands.get(cmdName);
-      if (def?.handleComponent) return def.handleComponent(interaction);
+      if (def?.handleComponent) {
+        await def.handleComponent(interaction);
+        return;
+      }
     }
   } catch (err) {
     console.error('Interaction error:', err);
@@ -103,4 +110,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+// Defense in depth: a bug anywhere else (a missed await in a future command,
+// a library quirk, etc.) should never be able to take the whole bot down.
+// Log it and keep running instead of letting Node's default behavior
+// terminate the process on an unhandled rejection.
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled promise rejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
 client.login(config.token);
+      
